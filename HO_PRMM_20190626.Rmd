@@ -1,0 +1,220 @@
+---
+title: "Recomendaciones y herramientas para el uso de modelos lineales con efectos mixtos"
+author: "Federico Alvarez"
+date: "26 de junio de 2019"
+output: 
+    pdf_document:
+        number_sections: TRUE
+bibliography: bibliografia.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
+library(lme4)
+library(tidyverse)
+library(broom.mixed)
+
+datos_experimento <- read_csv('datos_experimento_version1.csv') %>% 
+    mutate(fct_lect = as.factor(fct_lect),
+           Concordancia = as.factor(Concordancia))
+```
+
+# Introducción
+
+Los modelos lineales con efectos mixtos se usan de manera bastante extendida en varios campos científicos. En el caso de las ciencias cognitivas y, fundamentalmente, en el caso de la psicolingüística, su uso se ha ido volviendo más y más extendido, dado que permiten dar cuenta de factores que afectan consistentemente a los estudios del campo, como es el hecho de que en varios diseños experimentales se toman múltiples muestras por sujeto o por ítem experimental, lo cual viola el supuesto de independencia necesario para la aplicación de métodos que no tomen en cuenta efectos aleatorios. 
+
+Tomando esto en cuenta, en este reunión quiero señalar cómo abordar dos cuestiones que dificultan la implementación de estos modelos: cómo determinar la estructura de efectos aleatorios y cómo obtener valores de _p_.
+
+
+# Consideraciones sobre la estructura de efectos aleatorios
+
+## Descripción
+
+En @Barr2013 se conduce una serie de simulaciones dirigidas a determinar qué procedimientos son más apropiados en terminos de conservatividad y de sensibilidad a la hora de trabajar con modelos de efectos mixtos. Las diferentes condiciones simuladas tienen que ver con estructuras de efectos aleatorios de complejidad decreciente, y también consideraron diferentes procedimientos de selección de modelos. 
+
+En el estudio consideran siete modelos: 1) Sin efectos aleatorios, 2) con intercepto aleatorio por sujeto, 3) con intercepto y pendiente aleatoria por sujeto, 4) con intercepto y pendiente aleatorias por sujeto e intercepto aleatorio por ítem, 5) con interceptos aleatorios por sujeto y por ítem, 6) con intercepto y pendiente aleatorios sin correlación por sujeto y con intercepto aleatorio por ítem, y 7) con pendiente aleatoria sin correlaciones por sujeto y con intercepto aleatorio por ítem.
+
+Si considero una variable dependiente Y, una variable independientes X y variables de agrupamiento sujeto e ítem, las fórmulas de los modelos se escribirían así:
+
+1. Sin efectos aleatorios (no es un modelo mixto)
+```{}
+Y ~ X
+```
+
+2. Con intercepto aleatorio por sujeto
+```{}
+Y ~ X + (1|sujeto)
+```
+
+3. Con intercepto y pendiente aleatorios por sujeto
+```{}
+Y ~ X + (1 + X|sujeto)
+```
+
+4. Con intercepto y pendiente aleatorios por sujeto e intercepto aleatorio por ítem
+```{}
+Y ~ X + (1 + X|sujeto) + (1|ítem)
+```
+
+5. Con interceptos aleatorios por sujeto y por ítem
+```{}
+Y ~ X + (1|sujeto) + (1|ítem)
+```
+
+6. Con pendiente e intercepto aleatorios no correlacionados por sujeto e intercepto aleatorio por ítem
+```{}
+Y ~ X + (1|sujeto) + (0 + X|sujeto) + (1|ítem)
+```
+
+7. Con pendiente aleatoria sin correlaciones por sujeto y con intercepto aleatorio por ítem.
+```{}
+Y ~ X + (0 + X|sujeto) + (1|ítem)
+```
+
+
+Las simulaciones se hicieron sobre datasets de 24 sujetos con 12 y 24 observaciones por sujeto. La variable dependiente era continua y era una muestra aleatoria correspondiente a la ausencia de efecto o a un efecto de .8, en tanto que la variable dependiente era un factor de dos niveles.
+
+Los resultados que obtienen apuntan a que los modelos máximos (4) y los modelos cuasi-máximos (6 y 7) son los menos anticonservadores y con mejor sensibilidad, en tanto que los peores son los modelos que sólo incluyen interceptos aleatorios (5). Proponen casos intermedios que abarcan modelos seleccionados por procedimientos hacia adelante o hacia atrás (también toman en consideración anovas con efectos aleatorios por sujeto o por ítem y su combinación). Los autores consideran que para usar modelos con efectos mixtos es importante que la estructura de efectos mixtos se adecúe al diseño del estudio y que, al momento de publicación del artículo, los investigadores se han preocupado más por no sobreparametrizar los modelos en función de los datos que por no subparamterizarlos en función del diseño.
+
+
+## ¿Cómo afecta esto al modo en el que usamos los modelos mixtos?
+
+Parte de la discusión hace foco en cómo identificar la estructura máxima de efectos aleatorios. Según los autores, la necesidad de usar pendientes o interceptos aleatorios depende fuertemente de la unidad de muestro (sujetos o ítems). Cuando un factor aleatorio se observa una única vez por unidad (por ejemplo, cuando cada sujeto ve un ítem experimental una única vez), basta con considerar un intercepto aleatorio para ese factor. En cambio, si un factor aleatorio se repite múltiples veces en la unidad de muestreo (o sea, cuando hay medidas repetidas de cada sujeto para cada condición), es necesario considerar pendientes aleatorias (hay salvedades para casos muy desbalanceados). 
+
+Otra cuestión de relevancia abordada en el artículo tiene que ver con los fallos de convergencia en el modelo. Los autores dicen que las chances de que un modelo converja van a depender del tamaño de los efectos aleatorios y de si la cantidad de observaciones es suficiente para estimar los efectos aleatorios. En general, mientras mayor sea la muestra, más chances habrá de que el modelo converja. Sin embargo, no siempre es posible tomar un experimento a un número alto de sujetos, o emplear un alto número de ítems por experimento. Además, frecuentemente es más difícil que un modelo converja cuando la variable dependiente es categórica que si es numérica (continua). Es importante no caer en el uso de modelos que sólo tengan interceptos aleatorios. Cuando un modelo no converge, el primer paso siempre debe ser la inspección de los datos, a ver si hay algún error que dificulta el análisis. También recomiendan la eliminación de outliers y el centrado y recodificación de los predictores. Otro consejo es aumentar la cantidad de iteraciones en el procedimiento de estimación. Finalmente, también recomiendan considerar si un imbalance en los niveles de los factores aleatorios puede ser lo que cause el problema de convergencia: en un caso en el que hay uno o varios ítems o sujetos de los cuales se tiene una cantidad reducida de observaciones, puede ser buena idea eliminarlos y conservar la estructura máxima. Si aún así se vuelve necesario simplificar el modelo, lo que se recomienda es eliminar las correlaciones aleatorias, o incluso los interceptos aleatorios, pero no las pendientes aleatorias, dado que los modelos sin correlaciones (ni interceptos) se desempeñan de manera razonablemente similar a los modelos máximos para distintos tamaños de muestras y de efectos. Un caso de mayor complejidad es el que se da cuando hay una cantidad elevada de efectos fijos. Según los autores aún falta investigación sobre las estrategias a seguir en esta situación, pero una heurística recomendada es que para cualquier efecto fijo de interés, es necesario considerar los efectos aleatorios. Si un análisis con varios efectos fijos no converge, se pueden realizar múltiples análisis que incluyan todos los efectos fijos, pero los efectos aleatorios completos de uno sólo. Si todo esto falla, se puede proceder a partir de un modelo mínimo al cual se le van adicionando efectos aleatorios (en el paper discuten un algoritmo para realizar una selección hacia adelante óptima, no temino de cazarle la onda). Una obervación final sobre el tema es que los modelos máximos van a tener mayores chances de converger cuando los efectos aleatorios son mayores, con lo cual una metodología posible ante la falta de convergencia es la parametrización de un modelo con efectos aleatorios de ítems y otro con efectos aleatorios de los sujetos, de manera análoga a el empleo de anova por ítems y por sujetos. 
+
+Para concluir, consideran también la relevancia de cómo se reportan los modelos de efectos mixtos. Dadas todas las observaciones previas sobre las diferencias posibles en la estructura de efectos aleatorios, es muy importante explicitar la estructura elegida, ya sea a través de la matriz de varianza-covarianza o a través de la aclaración de que se empleó una estructura máxima, indicando para qué variables se consideraron las pendientes aleatorias y, si no se trata de una estructura máxima, explicar y justificar la simplificación elegida. En el caso de haber empleado un procedimiento de selección de modelos hacia adelante, es importante reportar los criterios empleados para el testeo y la inclusión de los efectos aleatorios, así como los cambios en los supuestos sobre la generación de los datos resultantes de exclusión de determinados efectos más allá de "la incorporación de la pendiente aleatoria para la variable X no mejoró el desempeño del modelo".
+
+
+# lmerTest y valores de _p_
+
+Un obstáculo común para utilizar modelos mixtos es la dificultad para interpretarlos en términos de significancia estadística. Puntualmente en el caso de los modelos parametrizados utilizando el paquete lme4 de R [@Bates2010] (no quisiera generalizar a otras implementaciones) la salida del modelo no incluye valores de p para los efectos fijos, con lo cual se dificulta saber en qué casos esas variables tienen un efecto significativo en la variable dependiente. Frente a este problema existe una variedad de propuestas que intentan dar ayudar a la inferencia sobre las variables involucradas, como puede ser la comparación entre modelos de acuerdo con alguna métrica de información como AIC, o empleando un test de significancia sobre la verosimilitud del modelo a través de la función anova(). 
+
+El output por defecto de un modelo lineal de efectos mixtos luce así: 
+
+```{r}
+modelo <- lmer(puntaje ~ fct_lect * Concordancia +
+                   (1+fct_lect*Concordancia|sujeto) +
+                   (1|oracion),
+               datos_experimento)
+
+summary(modelo)
+
+anova(modelo)
+```
+
+Si queremos verificar el efecto de una variable a través de la comparación con un modelo que no la incluye tenemos
+que reparametrizar el modelo para que use máxima verosimilitud (ML) en vez de su versión restringida (REML), y esto luce así:
+```{r}
+modelo_ML <- lmer(
+    puntaje ~ fct_lect * Concordancia +
+        (1+fct_lect*Concordancia|sujeto) +
+        (1|oracion),
+    datos_experimento, REML = FALSE
+    )
+modelo_ML_noInter <- lmer(
+    puntaje ~ fct_lect + Concordancia +
+        (1+fct_lect*Concordancia|sujeto) +
+        (1|oracion),
+    datos_experimento, REML = FALSE
+    )
+
+modelo_ML_noMainConc <- lmer(
+    puntaje ~ fct_lect + fct_lect:Concordancia +
+        (1+fct_lect*Concordancia|sujeto) +
+        (1|oracion),
+    datos_experimento, REML = FALSE
+    )
+
+comp1 <- anova(modelo_ML, modelo_ML_noInter)
+comp1
+
+comp2 <- anova(modelo_ML, modelo_ML_noMainConc)
+comp2
+
+```
+
+Sin embargo, esta metodología puede ser anticonservadora, es decir, es posible que tenga una tasa de errores de tipo I superior al estándar de $\alpha$ = .05. En @Luke2016 se realiza una serie de experimentos sobre datos simulados con el fin de comparar diferentes maneras de obtener valores de _p_ para los efectos fijos. Las metodologías comparadas son:
+
+- El método _"t-as-z"_, según el cual el valor de _t_ correspondiente a cada variable se interpreta como perteneciente a una distribución normal, dado que la distribución de _t_ con grados de libertad infinitos se aproxima a _z_. De acuerdo con este método, un predictor es significativo cuando su valor de _t_ es igual o superior a 1.96.
+
+- La prueba de tasa de verosimilitud, que es el resultado de la comparación de modelos mediante la función anova() que vimos más arriba.
+
+- Los métodos de _Satterthwaite_ y _Kenward-Roger_ para la aproximación de los grados de libertad para una prueba _F_: en los modelos mixtos no es claro cuáles son los grados de libertad relevantes para el modelo nulo según el factor de agrupamiento (efecto mixto). Tanto _Satterthwaite_ como _Kenward-Roger_ son maneras de estimar los grados de libertad de la distribución nula. 
+
+- _Bootstrapping_ paramétrico, que implica el muestreo con reemplazo sobre la propia muestra.
+
+Estos métodos se combinan a su vez con la parametrización de los modelos mixtos según ML o REML. El resultado de estos experimentos es que los métodos de _Satterthwaite_ y _Kenward-Roger_ para modelos parametrizados empleando verosimilitud máxima restringida son los menos anticonservativos y que, por lo menos con muestras en un rango acotado, no poseen una sensibilidad reducida, o sea, no poseen una tasa de error de tipo II mayor a la de otros métodos.
+
+Tanto el método de _Satterthwaite_ como el de _Kenward-Roger_ se hallan implementados en el paquete lmerTest [@lmerTest]. Este paquete extiende los métodos summary() y anova() de lme4 agregando dos columnas a los efectos fijos, una correspondiente al valor de _F_ y otra al valor de _p_. Si llamamos a la librería y reparametrizamos el modelo, obtenemos el siguiente output: 
+
+OUTPUT
+```{r}
+library(lmerTest)
+modelo_test <- lmer(
+    puntaje ~ fct_lect * Concordancia +
+        (1+fct_lect*Concordancia|sujeto) +
+        (1|oracion),
+    datos_experimento)
+
+summary(modelo_test)
+anova(modelo_test)
+
+
+modelo_test_ML <- lmer(
+    puntaje ~ fct_lect * Concordancia +
+        (1+fct_lect*Concordancia|sujeto) +
+        (1|oracion),
+    datos_experimento, REML = FALSE)
+
+summary(modelo_test_ML)
+anova(modelo_test_ML)
+```
+
+Como podemos ver, esto nos permite obtener valores de p para cada efecto de manera muy sencilla, y es importante tener en cuenta si se está empleando ML o REML porque los resultados cambian. En @Agmon2019 podemos ver cómo se reportan estos resultados.
+
+> [...] we fitted a linear mixed effects model using R’s lmer function (Bates et al. 2015), with the
+logarithmic transformation of RT as the dependent variable. Polarity, Type, Standard and Truth-value were used as fixed effects, as well as all interactions. Random intercepts and slopes of Polarity, Type, Truth-value, Polarity × Type and Polarity × Truth-value were included, adjusted by subjects. P-values were obtained using R’s lmerTest package (Kuznetsova, Brockhoff & Christensen 2017). A significant main effect of Polarity was found (t = 16.2, p < 0.0001) as well as a significant Polarity × Type interaction (t = 4.5, p < 0.0001). This interaction stems from a stronger Polarity effect for quantifiers, in each of the Standard levels, as can be visualized in Figure 2.
+
+# Graficar nuestros modelos
+
+La librería sjPlot [@sjPlot] nos permite graficar nuestros modelos directamente sin necesidad de extraer los resultados previamente y podemos seleccionar diferentes elementos para visualizar.
+
+Por ejemplo, aquí tenemos los efectos principales de nuestro modelo:
+```{r}
+library(sjPlot)
+
+set_theme(base = theme_minimal())
+
+plot_model(modelo_test, type = 'eff')
+
+```
+Y aquí las interacciones (por alguna razón genera dos plots iguales, así que me quedé con uno solo):
+```{r}
+plot_model(modelo_test, type = 'int')[[1]]
+```
+
+Incluso es posible graficar los efectos aleatorios (el gráfico 1 muestra efectos aleatorios por sujeto y el 2 por ítem)
+```{r, fig.height=10}
+aleatorios <- plot_model(modelo_test, type = 're')
+aleatorios[[1]]
+```
+
+```{r, fig.height=8}
+aleatorios[[2]]
+```
+
+También se pueden visualizar diagnósticos del modelo, como homocedasticidad y normalidad de la varianza residual.
+```{r, fig.height=8}
+plot_model(modelo_test, type = 'diag')
+```
+
+
+# ¿Qué queda afuera?
+
+Un tema importante que no pude cubrir acá es que, del mismo modo que la regresión lineal sin efectos mixtos, los modelos mixtos pueden generalizarse. De ese modo, es posible parametrizar regresiones logísticas o _poisson_, o de otros tipos con efectos mixtos. En lme4 puede usarse la función glmer(), que emplea una sintaxis similar a la de lmer() con un parámetro adicional para indicar qué tipo de modelo generalizado desea usarse.
+
+Hay muchos tipos diferentes de modelos generalizados con efectos mixtos, y para casos en los que la variable independiente posee alguna clase de autocorrelación temporal existen los modelos generalizados aditivos, que permiten agregar términos de suavizado sobre medidas en una secuencia temporal y son útiles para fonética, lingüística histórica, y para medidas de procesamiento online. El paquete mgcv [@mgcv1; @mgcv2; @mgcv3; @mgcv4; @mgcv5] permite parametrizar modelos de este tipo con términos de suavizado para los efectos aleatorios.
+
+
+# Bibliografía
